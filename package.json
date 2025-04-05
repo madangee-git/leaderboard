@@ -1,0 +1,39 @@
+{
+  "name": "leaderboard-service",
+  "version": "1.0.0",
+  "description": "A scalable leaderboard service with secure authentication, PostgreSQL persistence, and Redis caching.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "lint": "eslint .",
+    "test": "jest --coverage"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "helmet": "^7.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.3",
+    "redis": "^4.6.7",
+    "uuid": "^9.0.1",
+    "ioredis": "^5.3.2",
+    "node-cron": "^3.0.0",
+    "express-rate-limit": "^7.0.0",
+    "joi": "^17.9.2",
+    "sequelize": "^6.32.1",
+    "prom-client": "^14.0.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.53.0",
+    "jest": "^29.6.2",
+    "nodemon": "^3.0.3",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT"
+  }

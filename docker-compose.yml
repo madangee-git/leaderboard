@@ -1,0 +1,112 @@
+services:
+  nginx:
+    image: nginx:latest
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    networks:
+      - leaderboard_network
+    depends_on:
+      - leaderboard-2
+      - leaderboard-1
+
+  # Static multi container configuration for now; can be dynamic with k8s for a proper production setup
+  leaderboard-1:
+    container_name: leaderboard_app_1
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PERSIST_INTERVAL=60
+      - POPULARITY_COUNT=5
+      - DB_HOST=db
+      - DB_NAME=leaderboard
+      - DB_USER=user
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - JWT_SECRET_FILE=/run/secrets/jwt_secret
+    secrets:
+      - db_password
+      - jwt_secret
+    networks:
+      - leaderboard_network
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  leaderboard-2:
+    container_name: leaderboard_app_2
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PERSIST_INTERVAL=60
+      - POPULARITY_COUNT=5
+      - DB_HOST=db
+      - DB_NAME=leaderboard
+      - DB_USER=user
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - JWT_SECRET_FILE=/run/secrets/jwt_secret
+    secrets:
+      - db_password
+      - jwt_secret
+    networks:
+      - leaderboard_network
+    ports:
+      - "3001:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  db:
+    container_name: db
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_DB: leaderboard
+    secrets:
+      - db_password
+    networks:
+      - leaderboard_network
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    container_name: redis
+    image: redis:alpine
+    networks:
+      - leaderboard_network
+    ports:
+      - "6379:6379"
+
+  test:
+    container_name: leaderboard_test
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    command: ["npm", "test"]
+    environment:
+      - NODE_ENV=test
+    networks:
+      - leaderboard_network
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+
+networks:
+  leaderboard_network:
+    driver: bridge
+
