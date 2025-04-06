@@ -22,7 +22,7 @@ async function updateScore(gameId, userId, score) {
     }
 
     // TODO mutex will add a delay - as alternate may read the scores from a message Q 
-    // and do the operation in a worker thread
+    // and do the update operation in worker threads
     // or use a full Redis based approach for thread safety instead of an in-memory map
 
     await mutex.runExclusive(async () => { // Lock execution per gameId
