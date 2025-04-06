@@ -11,6 +11,12 @@ The **Leaderboard Service** is a scalable, multi-container application that mana
 
 ---
 
+### 📷 Architecture Diagram
+
+![Architecture Diagram](./assets/leaderboard.png)
+
+This diagram illustrates the high-level architecture of the Leaderboard Service, showcasing the interaction between its components.
+
 ### 📌 System Components
 
 #### 🚀 Clients (Users/Games API)
