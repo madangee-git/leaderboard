@@ -21,8 +21,8 @@ async function updateScore(gameId, userId, score) {
         throw new Error("gameId and userId should be provided");
     }
 
-    // TODO mutex will add a delay - as alternate may read the scores from a message Q 
-    // and do the update operation in worker threads
+    // TODO mutex will add a delay - as alternate may read the update-scores from a message Q 
+    // and process the update operation in worker threads
     // or use a full Redis based approach for thread safety instead of an in-memory map
 
     await mutex.runExclusive(async () => { // Lock execution per gameId
