@@ -25,7 +25,7 @@
 					}
 				],
 				"url": {
-					"raw": "http://localhost:3000/metrics",
+					"raw": "http://localhost:3000/v1/metrics",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -63,7 +63,7 @@
 					}
 				},
 				"url": {
-					"raw": "http://localhost:80/leaderboard/game-new/update-score",
+					"raw": "http://localhost:80/v1/leaderboard/game-new/update-score",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -93,7 +93,7 @@
 					}
 				],
 				"url": {
-					"raw": "http://localhost:80/leaderboard/game-new?limit=10",
+					"raw": "http://localhost:80/v1/leaderboard/game-new?limit=10",
 					"protocol": "http",
 					"host": [
 						"localhost"

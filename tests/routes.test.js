@@ -15,7 +15,7 @@ describe("Leaderboard API Routes", () => {
     });
 
     // GET /leaderboard/:gameId - Valid gameId
-    test("GET /leaderboard/:gameId should return leaderboard data", async () => {
+    test("GET /v1/leaderboard/:gameId should return leaderboard data", async () => {
         const mockLeaderboard = [{ userId: "user1", score: 100 }];
         leaderboardService.getLeaderboard.mockResolvedValue(mockLeaderboard);
 
@@ -27,7 +27,7 @@ describe("Leaderboard API Routes", () => {
     });
 
     // GET /leaderboard/:gameId - Missing or invalid gameId
-    test("GET /leaderboard/:gameId should return 400 for invalid gameId", async () => {
+    test("GET /v1/leaderboard/:gameId should return 400 for invalid gameId", async () => {
         const response = await request(app).get("/leaderboard/%20"); // Invalid gameId
 
         expect(response.status).toBe(400);
@@ -35,7 +35,7 @@ describe("Leaderboard API Routes", () => {
     });
 
     // GET /leaderboard/:gameId - Service failure
-    test("GET /leaderboard/:gameId should return 500 on service failure", async () => {
+    test("GET /v1/leaderboard/:gameId should return 500 on service failure", async () => {
         leaderboardService.getLeaderboard.mockRejectedValue(new Error("DB Error"));
 
         const response = await request(app).get("/leaderboard/game123");
@@ -45,7 +45,7 @@ describe("Leaderboard API Routes", () => {
     });
 
     // POST /leaderboard/:gameId/update-score - Valid score update
-    test("POST /leaderboard/:gameId/update-score should update score", async () => {
+    test("POST /v1/leaderboard/:gameId/update-score should update score", async () => {
         leaderboardService.updateScore.mockResolvedValue();
 
         const response = await request(app)
@@ -63,7 +63,7 @@ describe("Leaderboard API Routes", () => {
     });
 
     // POST /leaderboard/:gameId/update-score - Missing fields
-    test("POST /leaderboard/:gameId/update-score should return 400 for missing fields", async () => {
+    test("POST /v1/leaderboard/:gameId/update-score should return 400 for missing fields", async () => {
         const response = await request(app)
             .post("/leaderboard/game123/update-score")
             .send({ userId: "user1", score: 50 });
@@ -73,7 +73,7 @@ describe("Leaderboard API Routes", () => {
     });
 
     // POST /leaderboard/:gameId/update-score - Invalid timestamp
-    test("POST /leaderboard/:gameId/update-score should return 400 for future timestamp", async () => {
+    test("POST /v1/leaderboard/:gameId/update-score should return 400 for future timestamp", async () => {
         const response = await request(app)
             .post("/leaderboard/game123/update-score")
             .send({
@@ -88,7 +88,7 @@ describe("Leaderboard API Routes", () => {
     });
 
     // POST /leaderboard/:gameId/update-score - Invalid gameId
-    test("POST /leaderboard/:gameId/update-score should return 400 for invalid gameId", async () => {
+    test("POST /v1/leaderboard/:gameId/update-score should return 400 for invalid gameId", async () => {
         const response = await request(app)
             .post("/leaderboard/   /update-score")
             .send({
@@ -103,7 +103,7 @@ describe("Leaderboard API Routes", () => {
     });
 
     // POST /leaderboard/:gameId/update-score - Service failure
-    test("POST /leaderboard/:gameId/update-score should return 500 on service failure", async () => {
+    test("POST /v1/leaderboard/:gameId/update-score should return 500 on service failure", async () => {
         leaderboardService.updateScore.mockRejectedValue(new Error("DB error"));
 
         const response = await request(app)

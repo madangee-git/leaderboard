@@ -16,13 +16,13 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // Expose /metrics endpoint for Prometheus
-app.get("/metrics", async (req, res) => {
+app.get("/v1/metrics", async (req, res) => {
     res.set("Content-Type", client.register.contentType);
     res.end(await client.register.metrics());
 });
 
 // Secure routes with authentication
-app.use("/leaderboard", authenticate, leaderboardRoutes);
+app.use("/v1/leaderboard", authenticate, leaderboardRoutes);
 
 // Health check endpoint
 app.get("/", (req, res) => res.send("Leaderboard Service is running!"));
@@ -37,7 +37,10 @@ const startServer = async () => {
         await connectDB();
 
         console.log("Syncing database...");
-        await sequelize.sync({ alter: true }); // Prevent table recreation issues
+        // just a hotfix for now to avoid race conditions during multi container app starts
+        if (process.env.RUN_SYNC === "true") {
+            await sequelize.sync({ alter: true });
+        }
 
         console.log("Starting scheduler...");
         scheduler();
