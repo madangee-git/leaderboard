@@ -1,5 +1,6 @@
 const express = require("express");
 const bodyParser = require("body-parser");
+const cors = require("cors");
 const leaderboardRoutes = require("./api/routes");
 const authenticate = require("./middleware/auth");
 const { connectDB, sequelize } = require("./database/postgres");
@@ -9,6 +10,9 @@ const errorHandler = require("./middleware/errorHandler");
 const metricsMiddleware = require("./middleware/metrics");
 
 const app = express();
+
+// Enable CORS
+app.use(cors());
 
 app.use(metricsMiddleware);
 
