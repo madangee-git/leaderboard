@@ -2,7 +2,7 @@ services:
   nginx:
     image: nginx:latest
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
       - "80:80"
     networks:
