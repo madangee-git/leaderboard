@@ -32,10 +32,21 @@ app.use(errorHandler);
 
 // Connect to database and start scheduler
 const startServer = async () => {
-    console.log("Connecting to database...");
-    await connectDB();
-    await sequelize.sync(); // Sync models with database
-    scheduler();
+    try {
+        console.log("Connecting to database...");
+        await connectDB();
+
+        console.log("Syncing database...");
+        await sequelize.sync({ alter: true }); // Prevent table recreation issues
+
+        console.log("Starting scheduler...");
+        scheduler();
+
+        console.log("Leaderboard service is running...");
+    } catch (error) {
+        console.error("Error starting the server:", error);
+        process.exit(1); // Exit process on failure
+    }
 };
 
 // Initialize Prometheus metrics
