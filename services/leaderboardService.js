@@ -1,22 +1,32 @@
 const redisClient = require("../database/redis");
-const { POPULARITY_COUNT } = require("../config/settings");
+const { POPULARITY_COUNT, MAX_IN_MEMORY_GAMES} = require("../config/settings");
 
 const leaderboards = new Map(); // In-memory leaderboard storage
+
+// Track access order using a Set (used for LRU)
+const accessOrder = new Set();
 
 // This function updates the score for a user in a game.
 // It updates the in-memory leaderboard and checks if the game is popular.
 // If it is, it caches the leaderboard in Redis.
-
 
 async function updateScore(gameId, userId, score) {
     if (!gameId || !userId) {
         throw new Error("gameId and userId should be provided");
     }
 
-    // Update in-memory leaderboard    
     if (!leaderboards.has(gameId)) {
         leaderboards.set(gameId, new Map());
     }
+
+    // Update access order for LRU eviction
+    accessOrder.delete(gameId);
+    accessOrder.add(gameId);
+
+    // Evict if needed
+    evictIfNeeded();
+    
+    // Update in-memory leaderboard    
     leaderboards.get(gameId).set(userId, score);
 
     // Update game popularity based on active users in the game
@@ -44,6 +54,21 @@ async function updateScore(gameId, userId, score) {
     }
 }
 
+/**
+ * Evicts the least recently used (LRU) game if memory exceeds threshold.
+ */
+function evictIfNeeded() {
+    if (leaderboards.size > MAX_IN_MEMORY_GAMES) {
+        // Get the oldest accessed game
+        const oldestGame = accessOrder.values().next().value;
+        if (oldestGame) {
+            console.log(`Evicting least recently used game: ${oldestGame}`);
+            leaderboards.delete(oldestGame);
+            accessOrder.delete(oldestGame);
+        }
+    }
+}
+
 // This function retrieves the leaderboard for a game.
 // It checks if the leaderboard is cached in Redis.
 // If it is, it fetches the leaderboard from Redis.
@@ -68,20 +93,11 @@ async function getLeaderboard(gameId, limit = 10) {
         console.error(`Error checking Redis existence for game ${gameId}:`, error);
     }
 
-    try {
-        if (await isPopularGame(gameId)) {
-            console.log(`Caching entire leaderboard for popular game ${gameId}`);
-            try {
-                await cacheEntireLeaderboard(gameId);
-            } catch (error) {
-                console.error(`Error caching entire leaderboard for game ${gameId}:`, error);
-            }
-        }
-    } catch (error) {
-        console.error(`Error checking if game ${gameId} is popular:`, error);
-    }
-
     console.log(`Game not popular yet - fetching leaderboard from memory for game ${gameId}`);
+    // Refresh access order
+    accessOrder.delete(gameId);
+    accessOrder.add(gameId);
+    // TODO fallback to database fetch if data is not available in memory - may have been evicted?
     return getLeaderboardFromMemory(gameId, limit);
 }
 
@@ -162,5 +178,6 @@ module.exports = {
     updateScore, 
     getLeaderboard, 
     leaderboards,
-    isPopularGame
+    isPopularGame,
+    evictIfNeeded
 };

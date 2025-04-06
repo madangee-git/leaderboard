@@ -27,25 +27,24 @@ This diagram illustrates the high-level architecture of the Leaderboard Service,
 - Uses **consistent hashing** to maximize **in-memory reads**.
 
 #### 🏅 Leaderboard Service (Node.js + Express)
-- Handles **score updates** and **leaderboard queries**.
-- Implements an **in-memory cache** using a **hybrid Redis + PostgreSQL approach**.
+- Handles score updates and leaderboard queries.
+- Implements an in-memory cache using a hybrid Redis + PostgreSQL approach.
 
 #### ⚡ Redis (Caching & Fast Lookups)
-- Stores **frequently accessed leaderboards**.
-- Uses **sorted sets (ZSET)** to efficiently rank users by score.
+- Stores popular leaderboards.
 
 #### 🛢️ PostgreSQL (Persistent Storage)
-- Stores **historical leaderboard data**.
-- Periodically updated from Redis using a **write-behind caching strategy**.
+- Stores historical leaderboard data.
+- Periodically updated from Redis using a write-behind caching strategy.
 
 #### ⏳ Scheduler (Cron Jobs)
-- Periodically **persists in-memory leaderboards** to PostgreSQL.
+- Periodically persists (configurable) in-memory leaderboards to PostgreSQL.
 
 #### 🔐 Authentication Middleware
-- Uses **JWT-based authentication** to secure API endpoints.
+- Uses JWT-based authentication to secure API endpoints.
 
 #### 📊 Monitoring & Metrics
-- **Prometheus** collects system metrics like **response times, API hits, memory usage**.
+- Prometheus collects system metrics like response times, API hits, memory usage.
 
 ---
 
@@ -73,9 +72,11 @@ docker-compose up -d --build
 
 ## 🔌 API Endpoints
 
+Postman collection added  [here](./assets/LeaderBoard.postman_collection.json) 
+
 #### 1️⃣ Get Leaderboard
 📌 **Endpoint:** `GET /leaderboard/{gameId}?limit={N}`  
-🔹 **Description:** Fetches the **current leaderboard** for a given game.  
+🔹 **Description:** Fetches the current leaderboard for a given game.  
 🔹 **Query Param:** `limit` (default: 10) – Number of top scores to retrieve.  
 
 ##### ✅ Sample Request:
@@ -93,7 +94,6 @@ curl -X GET http://localhost/leaderboard/game-xxxx?limit=10 \
   ]
 }
 ```
-
 ---
 
 #### 2️⃣ Add Score

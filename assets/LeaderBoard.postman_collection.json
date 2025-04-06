@@ -1,0 +1,117 @@
+{
+	"info": {
+		"_postman_id": "ae244b37-58a3-4a63-89c3-1bcf82ba8614",
+		"name": "LeaderBoard",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "52739"
+	},
+	"item": [
+		{
+			"name": "Get metrics",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "Authorization",
+						"value": "Bearer token",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:3000/metrics",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"metrics"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Update score",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "Authorization",
+						"value": "Bearer token",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"eventType\": \"scoreUpdate\",\n    \"userId\": \"aaa\",\n    \"score\": 360,\n    \"timestamp\": \"2025-04-04T00:00:00.000Z\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:80/leaderboard/game-new/update-score",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "80",
+					"path": [
+						"leaderboard",
+						"game-new",
+						"update-score"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Leaderboard",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer token",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:80/leaderboard/game-new?limit=10",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "80",
+					"path": [
+						"leaderboard",
+						"game-new"
+					],
+					"query": [
+						{
+							"key": "limit",
+							"value": "10"
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

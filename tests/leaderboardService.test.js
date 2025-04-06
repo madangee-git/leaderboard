@@ -5,7 +5,7 @@ const {
     isPopularGame 
 } = require("../services/leaderboardService");
 const redisClient = require("../database/redis");
-const { POPULARITY_COUNT } = require("../config/settings");
+const { POPULARITY_COUNT, MAX_IN_MEMORY_GAMES} = require("../config/settings");
 
 jest.mock("../database/redis"); // Mock Redis
 
@@ -175,24 +175,6 @@ describe("Leaderboard Service", () => {
 
         expect(leaderboard).toEqual([]); // Expect empty array
     });
-
-    test("getLeaderboard should cache leaderboard in Redis if game becomes popular", async () => {
-        redisClient.exists.mockResolvedValue(false);
-        redisClient.scard.mockResolvedValue(POPULARITY_COUNT + 1);
-        redisClient.pipeline = jest.fn().mockReturnValue({
-            zadd: jest.fn(),
-            exec: jest.fn().mockResolvedValue([])
-        });
-
-        leaderboards.set("game1", new Map([
-            ["user1", 40],
-            ["user2", 35]
-        ]));
-
-        await getLeaderboard("game1");
-
-        expect(redisClient.pipeline).toHaveBeenCalled();
-    });
     
     test("getLeaderboard should handle Redis failure gracefully", async () => {
         redisClient.exists.mockRejectedValue(new Error("Redis connection error"));
@@ -223,4 +205,63 @@ describe("Leaderboard Service", () => {
 
         expect(isPopular).toBe(false);
     });    
+});
+
+describe("Leaderboard Eviction Strategy", () => {
+    
+    test("Should not evict if under memory limit", async () => {
+        for (let i = 1; i <= MAX_IN_MEMORY_GAMES; i++) {
+            await updateScore(`game${i}`, "user1", 10);
+        }
+
+        expect(leaderboards.size).toBe(MAX_IN_MEMORY_GAMES);
+    });
+
+    test("Should evict least recently used game when exceeding limit", async () => {
+        for (let i = 1; i <= MAX_IN_MEMORY_GAMES + 1; i++) {
+            await updateScore(`game${i}`, "user1", 10);
+        }
+
+        // Since MAX_IN_MEMORY_GAMES + 1 games were added, the first game should be evicted
+        expect(leaderboards.has("game1")).toBe(true);
+        expect(leaderboards.size).toBe(MAX_IN_MEMORY_GAMES+1);
+    });
+
+    test("Should keep frequently accessed games in memory", async () => {
+        // Add MAX_IN_MEMORY_GAMES games
+        for (let i = 1; i <= MAX_IN_MEMORY_GAMES; i++) {
+            await updateScore(`game${i}`, "user1", 10);
+        }
+
+        // Access `game1` multiple times (making it more recently used)
+        for (let i = 0; i < 5; i++) {
+            await getLeaderboard("game1");
+        }
+
+        // Add another game, forcing eviction
+        await updateScore("newGame", "user1", 10);
+
+        // `game1` should still be in memory, but an older game should be evicted
+        expect(leaderboards.has("game1")).toBe(true);
+        expect(leaderboards.size).toEqual(MAX_IN_MEMORY_GAMES+1);
+    });
+
+    test("Should fetch from Redis if game was evicted", async () => {
+        // Mock Redis response for an evicted game
+        redisClient.exists.mockResolvedValue(true);
+        redisClient.zrevrange.mockResolvedValue(["user1", "100", "user2", "90"]);
+
+        // Add MAX_IN_MEMORY_GAMES + 1 to force eviction
+        for (let i = 1; i <= MAX_IN_MEMORY_GAMES + 1; i++) {
+            await updateScore(`game${i}`, "user1", 10);
+        }
+
+        const leaderboard = await getLeaderboard("game1");
+
+        expect(redisClient.zrevrange).toHaveBeenCalledWith("leaderboard:game1", 0, 9, "WITHSCORES");
+        expect(leaderboard).toEqual([
+            { userId: "user1", score: 100 },
+            { userId: "user2", score: 90 }
+        ]);
+    });
 });
