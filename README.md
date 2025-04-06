@@ -75,7 +75,13 @@ Ensure you have the following installed:
 To start the service, run:
 
 ```bash
-docker-compose up -d --build
+make docker-run
+```
+
+To start the services, run:
+
+```bash
+make docker-stop
 ```
 
 ---
@@ -146,7 +152,7 @@ curl -X POST http://localhost/leaderboard/game-xxxx/update-score \
 To run the test suite, use:
 
 ```bash
-docker-compose run test
+make test-docker
 ```
 
 ---
