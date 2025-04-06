@@ -15,15 +15,14 @@ const mutex = new Mutex(); // Create a lock instance
 // It updates the in-memory leaderboard and checks if the game is popular.
 // If it is, it caches the leaderboard in Redis.
 
-
 async function updateScore(gameId, userId, score) {
     if (!gameId || !userId) {
         throw new Error("gameId and userId should be provided");
     }
 
-    // TODO mutex will add a delay - as alternate may read the update-scores from a message Q 
-    // and process the update operation in worker threads
-    // or use a full Redis based approach for thread safety instead of an in-memory map
+    // TODO mutex will add a delay - as an alternate we may read the update-scores from a message Q 
+    // and process the update operation in parallel worker threads (or)
+    // use a full Redis based approach for thread safety instead of an in-memory map
 
     await mutex.runExclusive(async () => { // Lock execution per gameId
         if (!leaderboards.has(gameId)) {
@@ -110,7 +109,8 @@ async function getLeaderboard(gameId, limit = 10) {
     // Refresh access order
     accessOrder.delete(gameId);
     accessOrder.add(gameId);
-    // TODO fallback to database fetch if data is not available in memory - may have been evicted?
+    // TODO fallback to database fetch if data is not available in memory 
+    // may have been evicted or app crashed ?
     return getLeaderboardFromMemory(gameId, limit);
 }
 
