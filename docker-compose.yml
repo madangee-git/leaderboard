@@ -19,6 +19,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - PERSIST_INTERVAL=60
       - POPULARITY_COUNT=5
+      - RUN_SYNC=true
       - MAX_IN_MEMORY_GAMES=100
       - DB_HOST=db
       - DB_NAME=leaderboard
@@ -45,6 +46,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - PERSIST_INTERVAL=60
       - POPULARITY_COUNT=5
+      - RUN_SYNC=false
       - DB_HOST=db
       - DB_NAME=leaderboard
       - DB_USER=user

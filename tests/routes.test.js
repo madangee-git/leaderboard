@@ -119,3 +119,50 @@ describe("Leaderboard API Routes", () => {
         expect(response.body).toEqual({ error: "Failed to update score" });
     });
 });
+
+describe("API Performance Tests", () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    const MAX_RESPONSE_TIME = 200; // Define acceptable response time (in ms)
+  
+    test("GET /leaderboard should respond in under 200ms", async () => {
+        const mockLeaderboard = [{ userId: "user1", score: 100 }];
+        leaderboardService.getLeaderboard.mockResolvedValue(mockLeaderboard);
+
+        leaderboardService.updateScore.mockResolvedValue(); // Mock successful updateScore
+        const start = Date.now();
+        const response = await request(app).get("/leaderboard/game123");
+        const duration = Date.now() - start;
+
+        expect(response.status).toBe(200);
+        expect(duration).toBeLessThan(MAX_RESPONSE_TIME); // Ensure performance
+    });
+  
+    test("POST /update-score should respond in under 200ms", async () => {
+        const start = Date.now();
+        const response = await request(app)
+            .post("/leaderboard/game123/update-score")
+            .send({ eventType: "scoreUpdate",
+                userId: "user1",
+                score: 50,
+                timestamp: new Date().toISOString() });
+    
+        const duration = Date.now() - start;
+        expect(response.status).toBe(200);
+        expect(duration).toBeLessThan(MAX_RESPONSE_TIME);
+    });
+  
+    test("API should handle 100 concurrent requests efficiently", async () => {
+      const requests = [];
+      for (let i = 0; i < 100; i++) {
+        requests.push(request(app).get("/leaderboard/game123"));
+      }
+  
+      const results = await Promise.all(requests);
+      results.forEach((res) => {
+        expect(res.status).toBe(200);
+      });
+    });
+  });
