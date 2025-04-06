@@ -7,21 +7,21 @@ const dbHost = process.env.DB_HOST || "db";
 const dbName = process.env.DB_NAME || "leaderboard";
 
 const sequelize = new Sequelize(dbName, dbUser, dbPassword, {
-    host: dbHost,
-    dbUser: dbUser,
-    dbPassword: dbPassword,
-    logging: console.log,
-    dialect: "postgres",
-    port: 5432,
+  host: dbHost,
+  dbUser: dbUser,
+  dbPassword: dbPassword,
+  logging: console.log,
+  dialect: "postgres",
+  port: 5432,
 });
 
 const connectDB = async () => {
-    try {
-        await sequelize.authenticate();
-        console.log("DB connected successfully.");
-    } catch (error) {
-        console.error("Unable to connect to DB:", error);
-    }
+  try {
+    await sequelize.authenticate();
+    console.log("DB connected successfully.");
+  } catch (error) {
+    console.error("Unable to connect to DB:", error);
+  }
 };
 
 module.exports = { sequelize, connectDB };

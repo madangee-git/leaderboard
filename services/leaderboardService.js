@@ -16,70 +16,73 @@ const mutex = new Mutex(); // Create a lock instance
 // If it is, it caches the leaderboard in Redis.
 
 async function updateScore(gameId, userId, score) {
-    if (!gameId || !userId) {
-        throw new Error("gameId and userId should be provided");
+  if (!gameId || !userId) {
+    throw new Error("gameId and userId should be provided");
+  }
+
+  // TODO mutex will add a delay - as an alternate we may read the update-scores from a message Q
+  // and process the update operation in parallel worker threads (or)
+  // use a full Redis based approach for thread safety instead of an in-memory map
+
+  await mutex.runExclusive(async () => {
+    // Lock execution per gameId
+    if (!leaderboards.has(gameId)) {
+      leaderboards.set(gameId, new Map());
     }
 
-    // TODO mutex will add a delay - as an alternate we may read the update-scores from a message Q 
-    // and process the update operation in parallel worker threads (or)
-    // use a full Redis based approach for thread safety instead of an in-memory map
+    // Update access order for LRU eviction
+    accessOrder.delete(gameId);
+    accessOrder.add(gameId);
 
-    await mutex.runExclusive(async () => { // Lock execution per gameId
-        if (!leaderboards.has(gameId)) {
-            leaderboards.set(gameId, new Map());
+    // Evict if needed
+    evictIfNeeded();
+
+    // Update in-memory leaderboard
+    leaderboards.get(gameId).set(userId, score);
+
+    // Update game popularity based on active users in the game
+    try {
+      await updateGamePopularity(gameId, userId);
+
+      if (await isPopularGame(gameId)) {
+        console.log(
+          `Game ${gameId} is now popular. Caching leaderboard to Redis.`,
+        );
+
+        // Check if this is the first time caching (i.e., Redis leaderboard doesn't exist yet)
+        const isCached = await redisClient.exists(`leaderboard:${gameId}`);
+        if (!isCached) {
+          await cacheEntireLeaderboard(gameId); // Dump in-memory leaderboard to Redis
         }
-    
-        // Update access order for LRU eviction
-        accessOrder.delete(gameId);
-        accessOrder.add(gameId);
 
-        // Evict if needed
-        evictIfNeeded();
-
-        // Update in-memory leaderboard
-        leaderboards.get(gameId).set(userId, score);
-
-        // Update game popularity based on active users in the game
+        // Always update score in Redis for popular games
         try {
-            await updateGamePopularity(gameId, userId);
-
-            if (await isPopularGame(gameId)) {
-                console.log(`Game ${gameId} is now popular. Caching leaderboard to Redis.`);
-
-                // Check if this is the first time caching (i.e., Redis leaderboard doesn't exist yet)
-                const isCached = await redisClient.exists(`leaderboard:${gameId}`);
-                if (!isCached) {
-                    await cacheEntireLeaderboard(gameId); // Dump in-memory leaderboard to Redis
-                }
-
-                // Always update score in Redis for popular games
-                try {
-                    // TODO set TTL for the leaderboard in redis and refresh the cache when accessed
-                    // Use a configurable time to live (TTL) for the leaderboard
-                    await redisClient.zadd(`leaderboard:${gameId}`, score, userId);
-                } catch (error) {
-                    console.error(`Error caching score for game ${gameId}:`, error);
-                }
-            }
+          // TODO set TTL for the leaderboard in redis and refresh the cache when accessed
+          // Use a configurable time to live (TTL) for the leaderboard
+          await redisClient.zadd(`leaderboard:${gameId}`, score, userId);
         } catch (error) {
-            console.error(`Error checking if game ${gameId} is popular:`, error);
+          console.error(`Error caching score for game ${gameId}:`, error);
         }
-    });
+      }
+    } catch (error) {
+      console.error(`Error checking if game ${gameId} is popular:`, error);
+    }
+  });
 }
 
 /**
  * Evicts the least recently used (LRU) game if memory exceeds threshold.
  */
 function evictIfNeeded() {
-    if (leaderboards.size > MAX_IN_MEMORY_GAMES) {
-        // Get the oldest accessed game
-        const oldestGame = accessOrder.values().next().value;
-        if (oldestGame) {
-            console.log(`Evicting least recently used game: ${oldestGame}`);
-            leaderboards.delete(oldestGame);
-            accessOrder.delete(oldestGame);
-        }
+  if (leaderboards.size > MAX_IN_MEMORY_GAMES) {
+    // Get the oldest accessed game
+    const oldestGame = accessOrder.values().next().value;
+    if (oldestGame) {
+      console.log(`Evicting least recently used game: ${oldestGame}`);
+      leaderboards.delete(oldestGame);
+      accessOrder.delete(oldestGame);
     }
+  }
 }
 
 // This function retrieves the leaderboard for a game.
@@ -92,34 +95,44 @@ function evictIfNeeded() {
 // TODO might require paginations as per the requested limit
 // TODO For cache misses - read the entire leaderboard from the database and cache it in memory
 async function getLeaderboard(gameId, limit = 10) {
-    try {
-        if (await redisClient.exists(`leaderboard:${gameId}`)) {
-            console.log(`Fetching leaderboard from Redis for game ${gameId}`);
-            try {
-                return await getLeaderboardFromRedis(gameId, limit);
-            } catch (error) {
-                console.error(`Error fetching leaderboard from Redis for game ${gameId}:`, error);
-            }
-        }
-    } catch (error) {
-        console.error(`Error checking Redis existence for game ${gameId}:`, error);
+  try {
+    if (await redisClient.exists(`leaderboard:${gameId}`)) {
+      console.log(`Fetching leaderboard from Redis for game ${gameId}`);
+      try {
+        return await getLeaderboardFromRedis(gameId, limit);
+      } catch (error) {
+        console.error(
+          `Error fetching leaderboard from Redis for game ${gameId}:`,
+          error,
+        );
+      }
     }
+  } catch (error) {
+    console.error(`Error checking Redis existence for game ${gameId}:`, error);
+  }
 
-    console.log(`Game not popular yet - fetching leaderboard from memory for game ${gameId}`);
-    // Refresh access order
-    accessOrder.delete(gameId);
-    accessOrder.add(gameId);
-    // TODO fallback to database fetch if data is not available in memory 
-    // may have been evicted or app crashed ?
-    return getLeaderboardFromMemory(gameId, limit);
+  console.log(
+    `Game not popular yet - fetching leaderboard from memory for game ${gameId}`,
+  );
+  // Refresh access order
+  accessOrder.delete(gameId);
+  accessOrder.add(gameId);
+  // TODO fallback to database fetch if data is not available in memory
+  // may have been evicted or app crashed ?
+  return getLeaderboardFromMemory(gameId, limit);
 }
 
 // This function retrieves the leaderboard from Redis.
 // It fetches the top N entries from the sorted set in Redis.
 // The leaderboard is sorted by score in descending order.
 async function getLeaderboardFromRedis(gameId, limit) {
-    const redisData = await redisClient.zrevrange(`leaderboard:${gameId}`, 0, limit - 1, "WITHSCORES");
-    return formatLeaderboard(redisData);
+  const redisData = await redisClient.zrevrange(
+    `leaderboard:${gameId}`,
+    0,
+    limit - 1,
+    "WITHSCORES",
+  );
+  return formatLeaderboard(redisData);
 }
 
 // This function retrieves the leaderboard from in-memory storage.
@@ -127,64 +140,64 @@ async function getLeaderboardFromRedis(gameId, limit) {
 // The leaderboard is stored in a Map, where the key is the userId and the value is the score.
 // The function converts the Map to an array of objects with userId and score properties.
 function getLeaderboardFromMemory(gameId, limit) {
-    const leaderboard = leaderboards.get(gameId) || new Map();
+  const leaderboard = leaderboards.get(gameId) || new Map();
 
-    // Convert map to sorted array (fast extraction of top N)
-    const sortedEntries = Array.from(leaderboard.entries())
-        .sort((a, b) => b[1] - a[1]) // Sort by score descending
-        .slice(0, limit); // Limit to top N
+  // Convert map to sorted array (fast extraction of top N)
+  const sortedEntries = Array.from(leaderboard.entries())
+    .sort((a, b) => b[1] - a[1]) // Sort by score descending
+    .slice(0, limit); // Limit to top N
 
-    return sortedEntries.map(([userId, score]) => ({ userId, score }));
+  return sortedEntries.map(([userId, score]) => ({ userId, score }));
 }
 
 // This function formats the Redis data into an array of objects
 // to be consistent with the in-memory leaderboard format.
 function formatLeaderboard(redisData) {
-    const formatted = [];
-    for (let i = 0; i < redisData.length; i += 2) {
-        formatted.push({
-            userId: redisData[i],
-            score: Number(redisData[i + 1]),
-        });
-    }
-    return formatted;
+  const formatted = [];
+  for (let i = 0; i < redisData.length; i += 2) {
+    formatted.push({
+      userId: redisData[i],
+      score: Number(redisData[i + 1]),
+    });
+  }
+  return formatted;
 }
 
 // This function updates the game popularity in Redis.
 // It adds the user to a set of active users for the game.
 // This is used to track active users for each game.
 async function updateGamePopularity(gameId, userId) {
-    await redisClient.sadd(`game:${gameId}:activeUsers`, userId); // Add user to set
+  await redisClient.sadd(`game:${gameId}:activeUsers`, userId); // Add user to set
 }
 
 // This function checks if a game is popular based on the number of active users.
 // It retrieves the count of active users from Redis.
 async function isPopularGame(gameId) {
-    const activeUsers = await redisClient.scard(`game:${gameId}:activeUsers`);
-    return activeUsers && parseInt(activeUsers, 10) > POPULARITY_COUNT;
+  const activeUsers = await redisClient.scard(`game:${gameId}:activeUsers`);
+  return activeUsers && parseInt(activeUsers, 10) > POPULARITY_COUNT;
 }
 
 // This function caches the entire leaderboard for a game in Redis.
 // It retrieves the leaderboard from in-memory storage and stores it in Redis.
 // This is done in a batch operation to improve performance.
 async function cacheEntireLeaderboard(gameId) {
-    const gameLeaderboard = leaderboards.get(gameId);
-    if (!gameLeaderboard || gameLeaderboard.size === 0) return;
+  const gameLeaderboard = leaderboards.get(gameId);
+  if (!gameLeaderboard || gameLeaderboard.size === 0) return;
 
-    const pipeline = redisClient.pipeline(); // Batch Redis operations
+  const pipeline = redisClient.pipeline(); // Batch Redis operations
 
-    for (const [userId, score] of gameLeaderboard.entries()) {
-        pipeline.zadd(`leaderboard:${gameId}`, score, userId);
-    }
+  for (const [userId, score] of gameLeaderboard.entries()) {
+    pipeline.zadd(`leaderboard:${gameId}`, score, userId);
+  }
 
-    await pipeline.exec(); // Execute all commands at once
-    console.log(`Cached entire leaderboard for game ${gameId} to Redis.`);
+  await pipeline.exec(); // Execute all commands at once
+  console.log(`Cached entire leaderboard for game ${gameId} to Redis.`);
 }
 
 module.exports = {
-    updateScore,
-    getLeaderboard,
-    leaderboards,
-    isPopularGame,
-    evictIfNeeded,
+  updateScore,
+  getLeaderboard,
+  leaderboards,
+  isPopularGame,
+  evictIfNeeded,
 };

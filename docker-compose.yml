@@ -112,4 +112,3 @@ secrets:
 networks:
   leaderboard_network:
     driver: bridge
-

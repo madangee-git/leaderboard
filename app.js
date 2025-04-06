@@ -17,8 +17,8 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 // Expose /metrics endpoint for Prometheus
 app.get("/v1/metrics", async (req, res) => {
-    res.set("Content-Type", client.register.contentType);
-    res.end(await client.register.metrics());
+  res.set("Content-Type", client.register.contentType);
+  res.end(await client.register.metrics());
 });
 
 // Secure routes with authentication
@@ -32,24 +32,24 @@ app.use(errorHandler);
 
 // Connect to database and start scheduler
 const startServer = async () => {
-    try {
-        console.log("Connecting to database...");
-        await connectDB();
+  try {
+    console.log("Connecting to database...");
+    await connectDB();
 
-        console.log("Syncing database...");
-        // just a hotfix for now to avoid race conditions during multi container app starts
-        if (process.env.RUN_SYNC === "true") {
-            await sequelize.sync({ alter: true });
-        }
-
-        console.log("Starting scheduler...");
-        scheduler();
-
-        console.log("Leaderboard service is running...");
-    } catch (error) {
-        console.error("Error starting the server:", error);
-        process.exit(1); // Exit process on failure
+    console.log("Syncing database...");
+    // just a hotfix for now to avoid race conditions during multi container app starts
+    if (process.env.RUN_SYNC === "true") {
+      await sequelize.sync({ alter: true });
     }
+
+    console.log("Starting scheduler...");
+    scheduler();
+
+    console.log("Leaderboard service is running...");
+  } catch (error) {
+    console.error("Error starting the server:", error);
+    process.exit(1); // Exit process on failure
+  }
 };
 
 // Initialize Prometheus metrics
