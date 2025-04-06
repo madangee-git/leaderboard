@@ -142,7 +142,7 @@ docker-compose run test
 ---
 ## 🛠️ Key Assumptions & TODO
 
-- Popularity for a game is based on the number of hits that the leaderboard API receives. 
+- Popularity for a game is based on the number of active users in the game. 
 - Postgres persistence can be used to re-populate the local cache if a local cache is lost due to pod crash etc.
 - New routes can be added to CRUD a game so that every game can produce an unique ID which can then be used as gameID on the API's.
 - Nginx consistent hashing tradeoff: This optimizes in-memory reads at the cost of potential uneven load distribution

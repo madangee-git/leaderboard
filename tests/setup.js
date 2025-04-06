@@ -5,6 +5,8 @@ jest.mock("../database/redis", () => ({
     get: jest.fn(),
     exists: jest.fn(),
     zadd: jest.fn(),
+    sadd: jest.fn(),
+    scard: jest.fn(),
     zrevrange: jest.fn(),
     pipeline: jest.fn(() => ({
         zadd: jest.fn(),

@@ -4,27 +4,35 @@ const { POPULARITY_COUNT } = require("../config/settings");
 const leaderboards = new Map(); // In-memory leaderboard storage
 
 // This function updates the score for a user in a game.
-// It checks if the game is popular and caches the score in Redis if it is.
-// It also updates the in-memory leaderboard.
-// If the game is not popular, it updates the in-memory leaderboard only.
+// It updates the in-memory leaderboard and checks if the game is popular.
+// If it is, it caches the leaderboard in Redis.
+
 
 async function updateScore(gameId, userId, score) {
-    if (!gameId) {
-        throw new Error("gameId cannot be null or undefined");
+    if (!gameId || !userId) {
+        throw new Error("gameId and userId should be provided");
     }
-    if (!userId) {
-        throw new Error("userId cannot be null or undefined");
-    }
+
     // Update in-memory leaderboard    
     if (!leaderboards.has(gameId)) {
         leaderboards.set(gameId, new Map());
     }
     leaderboards.get(gameId).set(userId, score);
 
-    // If game is popular, update Redis cache
+    // Update game popularity based on active users in the game
     try {
+        await updateGamePopularity(gameId, userId);
+        
         if (await isPopularGame(gameId)) {
-            console.log(`Caching score for popular game ${gameId}`);
+            console.log(`Game ${gameId} is now popular. Caching leaderboard to Redis.`);
+
+            // Check if this is the first time caching (i.e., Redis leaderboard doesn't exist yet)
+            const isCached = await redisClient.exists(`leaderboard:${gameId}`);
+            if (!isCached) {
+                await cacheEntireLeaderboard(gameId); // Dump in-memory leaderboard to Redis
+            }
+
+            // Always update score in Redis for popular games
             try {
                 await redisClient.zadd(`leaderboard:${gameId}`, score, userId);
             } catch (error) {
@@ -43,13 +51,10 @@ async function updateScore(gameId, userId, score) {
 // If it is, it caches the entire leaderboard in Redis.
 // If the game is not popular, it fetches the leaderboard from in-memory storage.
 
-async function getLeaderboard(gameId, limit = 10) {
-    try {
-        await updateGamePopularity(gameId);
-    } catch (error) {
-        console.error(`Error updating game popularity for game ${gameId}:`, error);
-    }
+// TODO might require paginations as per the requested limit
+// TODO For cache misses - read the entire leaderboard from the database and cache it in memory
 
+async function getLeaderboard(gameId, limit = 10) {
     try {
         if (await redisClient.exists(`leaderboard:${gameId}`)) {
             console.log(`Fetching leaderboard from Redis for game ${gameId}`);
@@ -105,7 +110,8 @@ function getLeaderboardFromMemory(gameId, limit) {
     return sortedEntries.map(([userId, score]) => ({ userId, score }));
 }
 
-// This function formats the Redis data into an array of objects.
+// This function formats the Redis data into an array of objects 
+// to be consistent with the in-memory leaderboard format.
 
 function formatLeaderboard(redisData) {
     const formatted = [];
@@ -118,21 +124,20 @@ function formatLeaderboard(redisData) {
     return formatted;
 }
 
-// This function updates the popularity of a game.
-// It increments the hit count for the game in Redis.
-// This is used to track the number of times a game has been accessed.
-// If the hit count exceeds the POPULARITY_COUNT threshold, the game is considered popular.
+// This function updates the game popularity in Redis.
+// It adds the user to a set of active users for the game.
+// This is used to track active users for each game.
 
-async function updateGamePopularity(gameId) {
-    await redisClient.incr(`game:${gameId}:hits`);
+async function updateGamePopularity(gameId, userId) {
+    await redisClient.sadd(`game:${gameId}:activeUsers`, userId); // Add user to set
 }
 
-// This function checks if a game is popular.
-// It retrieves the hit count from Redis and checks if it exceeds the POPULARITY_COUNT threshold.
+// This function checks if a game is popular based on the number of active users.
+// It retrieves the count of active users from Redis.
 
 async function isPopularGame(gameId) {
-    const hits = await redisClient.get(`game:${gameId}:hits`);
-    return hits && parseInt(hits, 10) > POPULARITY_COUNT
+    const activeUsers = await redisClient.scard(`game:${gameId}:activeUsers`);
+    return activeUsers && parseInt(activeUsers, 10) > POPULARITY_COUNT;
 }
 
 // This function caches the entire leaderboard for a game in Redis.
@@ -153,7 +158,7 @@ async function cacheEntireLeaderboard(gameId) {
     console.log(`Cached entire leaderboard for game ${gameId} to Redis.`);
 }
 
-module.exports = { 
+module.exports = {
     updateScore, 
     getLeaderboard, 
     leaderboards,
