@@ -11,6 +11,17 @@ The **Leaderboard Service** is a scalable, multi-container application that mana
 - **Monitoring & Metrics** using Prometheus.
 
 ---
+## 🛠️ Key Assumptions & TODO
+
+- Assuming the requirement warrants both in-memory map + Redis just for popular games alone. Unsure why we need to use this combo - instead we could use a full Redis based approach (with LRU eviction + DB for persistence).
+- Popularity for a game is based on the number of active users in the game.
+- Postgres persistence can be used to re-populate the local cache if a local cache is lost due to app crash etc.
+- New routes can be added to CRUD a game so that every game can produce an unique ID which can then be used as gameID on the API's.
+- Nginx consistent hashing tradeoff: This optimizes in-memory reads at the cost of potential uneven load distribution
+- Assumes most leaderboards fit in memory, with only high-traffic ones stored in Redis.
+- Eviction strategy: Least accessed leaderboards may be offloaded to PostgreSQL.
+- WebSockets/Event streams for real time communication with clients for updating the leaderboard, avoids client polling
+---
 
 ### 📷 Architecture Diagram
 
@@ -169,12 +180,3 @@ make test-docker
 
 ---
 
-## 🛠️ Key Assumptions & TODO
-
-- Popularity for a game is based on the number of active users in the game.
-- Postgres persistence can be used to re-populate the local cache if a local cache is lost due to app crash etc.
-- New routes can be added to CRUD a game so that every game can produce an unique ID which can then be used as gameID on the API's.
-- Nginx consistent hashing tradeoff: This optimizes in-memory reads at the cost of potential uneven load distribution
-- Assumes most leaderboards fit in memory, with only high-traffic ones stored in Redis.
-- Eviction strategy: Least accessed leaderboards may be offloaded to PostgreSQL.
-- WebSockets/Event streams for real time communication with clients for updating the leaderboard, avoids client polling

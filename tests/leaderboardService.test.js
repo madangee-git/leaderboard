@@ -49,6 +49,7 @@ describe("Leaderboard Service", () => {
 
     await updateScore("game1", "user1", 15);
 
+    expect(redisClient.zadd).toHaveBeenCalledTimes(1);
     expect(redisClient.zadd).toHaveBeenCalledWith(
       "leaderboard:game1",
       15,
