@@ -18,9 +18,9 @@ async function updateScore(gameId, userId, score) {
     await redisClient.sadd(`game:${gameId}:activeUsers`, userId);
 
     // Need not re-cache this whenever there is an update to popular game
-    // The current approach is simple but could lead to inefficiencies in high-traffic scenarios. 
+    // The current approach is simple but could lead to inefficiencies in high-traffic scenarios.
     // LRU strategy will take care of clearing the cache when the game becomes less accessed
-    
+
     if (await isPopularGame(gameId)) {
       await cacheLeaderboardInMemory(gameId);
     }

@@ -1,5 +1,8 @@
 const redisClient = require("../database/redis");
 const LeaderboardModel = require("../models/leaderboard");
+const { sequelize } = require("../database/postgres");
+
+// TODO Need to move this to a separate container so that this runs as a singleton
 
 async function persistLeaderboards() {
   console.log("Persisting leaderboards...");
@@ -32,29 +35,23 @@ async function persistLeaderboards() {
           continue;
         }
 
-        // Convert Redis data into an array of { userId, score } objects
-        const leaderboardEntries = [];
-        for (let i = 0; i < redisData.length; i += 2) {
-          leaderboardEntries.push({
-            userId: redisData[i],
-            score: Number(redisData[i + 1]),
-          });
-        }
-
-        // Persist each leaderboard entry to the database
-        for (const { userId, score } of leaderboardEntries) {
-          try {
-            await LeaderboardModel.upsert(
-              { gameId, userId, score },
-              { conflictFields: ["gameId", "userId"] },
-            );
-          } catch (dbError) {
-            console.error(
-              `Database error while persisting leaderboard for gameId: ${gameId}, userId: ${userId}`,
-              dbError,
-            );
+        // Convert Redis data into an array of { gameId, userId, score } objects
+        const leaderboardEntries = redisData.reduce((acc, val, idx, arr) => {
+          if (idx % 2 === 0) {
+            acc.push({ gameId, userId: val, score: Number(arr[idx + 1]) });
           }
-        }
+          return acc;
+        }, []);
+
+        // Persist entries in a batch transaction
+        await sequelize.transaction(async (transaction) => {
+          await LeaderboardModel.bulkCreate(leaderboardEntries, {
+            updateOnDuplicate: ["score"], // Ensure it updates existing entries
+            transaction,
+          });
+        });
+
+        console.log(`Successfully persisted leaderboard for gameId: ${gameId}`);
       } catch (redisError) {
         console.error(
           `Redis error while fetching leaderboard for gameId: ${gameId}`,

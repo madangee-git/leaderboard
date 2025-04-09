@@ -1,6 +1,7 @@
 const redisClient = require("../database/redis");
 const LeaderboardModel = require("../models/leaderboard");
 const { persistLeaderboards } = require("../services/persistenceService");
+const { sequelize } = require("../database/postgres");
 
 jest.mock("../database/redis", () => ({
   keys: jest.fn(),
@@ -8,7 +9,15 @@ jest.mock("../database/redis", () => ({
 }));
 
 jest.mock("../models/leaderboard", () => ({
-  upsert: jest.fn(),
+  bulkCreate: jest.fn(),
+}));
+
+jest.mock("../database/postgres", () => ({
+  sequelize: {
+    transaction: jest.fn((callback) =>
+      callback({ commit: jest.fn(), rollback: jest.fn() }),
+    ),
+  },
 }));
 
 describe("persistLeaderboards", () => {
@@ -17,7 +26,7 @@ describe("persistLeaderboards", () => {
   });
 
   test("should log and return if no leaderboard data exists in Redis", async () => {
-    redisClient.keys.mockResolvedValue([]); // Simulate no keys found in Redis
+    redisClient.keys.mockResolvedValue([]); // No keys found in Redis
 
     console.log = jest.fn();
     await persistLeaderboards();
@@ -26,7 +35,7 @@ describe("persistLeaderboards", () => {
     expect(redisClient.keys).toHaveBeenCalledWith("leaderboard:*");
   });
 
-  test("should fetch leaderboards from Redis and persist them in the database", async () => {
+  test("should fetch leaderboards from Redis and persist them in the database in a batch transaction", async () => {
     redisClient.keys.mockResolvedValue(["leaderboard:game1"]);
     redisClient.zrange.mockResolvedValue(["user1", "100", "user2", "90"]);
 
@@ -38,17 +47,18 @@ describe("persistLeaderboards", () => {
       -1,
       "WITHSCORES",
     );
-    expect(LeaderboardModel.upsert).toHaveBeenCalledWith(
-      { gameId: "game1", userId: "user1", score: 100 },
-      { conflictFields: ["gameId", "userId"] },
-    );
-    expect(LeaderboardModel.upsert).toHaveBeenCalledWith(
-      { gameId: "game1", userId: "user2", score: 90 },
-      { conflictFields: ["gameId", "userId"] },
+
+    expect(sequelize.transaction).toHaveBeenCalledTimes(1);
+    expect(LeaderboardModel.bulkCreate).toHaveBeenCalledWith(
+      [
+        { gameId: "game1", userId: "user1", score: 100 },
+        { gameId: "game1", userId: "user2", score: 90 },
+      ],
+      { updateOnDuplicate: ["score"], transaction: expect.any(Object) },
     );
   });
 
-  test("should continue processing even if Redis fails while fetching leaderboard data", async () => {
+  test("should continue processing other games even if Redis fails for one leaderboard", async () => {
     redisClient.keys.mockResolvedValue([
       "leaderboard:game1",
       "leaderboard:game2",
@@ -66,32 +76,29 @@ describe("persistLeaderboards", () => {
       `Redis error while fetching leaderboard for gameId: game1`,
       expect.any(Error),
     );
-    expect(LeaderboardModel.upsert).toHaveBeenCalledWith(
-      { gameId: "game2", userId: "user1", score: 50 },
-      { conflictFields: ["gameId", "userId"] },
+
+    expect(sequelize.transaction).toHaveBeenCalledTimes(1);
+    expect(LeaderboardModel.bulkCreate).toHaveBeenCalledWith(
+      [{ gameId: "game2", userId: "user1", score: 50 }],
+      { updateOnDuplicate: ["score"], transaction: expect.any(Object) },
     );
   });
 
-  test("should log error and continue if database insert fails for a user", async () => {
+  test("should log error and continue if database transaction fails", async () => {
     redisClient.keys.mockResolvedValue(["leaderboard:game1"]);
     redisClient.zrange.mockResolvedValue(["user1", "100", "user2", "90"]);
 
-    LeaderboardModel.upsert.mockImplementation(({ userId }) => {
-      if (userId === "user1") return Promise.reject(new Error("DB error"));
-      return Promise.resolve();
-    });
+    sequelize.transaction.mockImplementationOnce(() =>
+      Promise.reject(new Error("DB Transaction Failed")),
+    );
 
     console.error = jest.fn();
     await persistLeaderboards();
 
-    expect(console.error).toHaveBeenCalledWith(
-      `Database error while persisting leaderboard for gameId: game1, userId: user1`,
-      expect.any(Error),
-    );
-    expect(LeaderboardModel.upsert).toHaveBeenCalledTimes(2); // Both users processed
+    expect(LeaderboardModel.bulkCreate).not.toHaveBeenCalled();
   });
 
-  test("should log error if fetching leaderboard keys from Redis fails", async () => {
+  test("should log critical error if fetching leaderboard keys from Redis fails", async () => {
     redisClient.keys.mockRejectedValue(new Error("Redis connection failed"));
 
     console.error = jest.fn();
