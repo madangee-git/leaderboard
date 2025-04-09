@@ -3,11 +3,12 @@ const {
   getLeaderboard,
   leaderboards,
   isPopularGame,
+  evictIfNeeded,
 } = require("../services/leaderboardService");
 const redisClient = require("../database/redis");
-const { POPULARITY_COUNT, MAX_IN_MEMORY_GAMES } = require("../config/settings");
+const { POPULARITY_COUNT, MAX_POPULAR_GAMES } = require("../config/settings");
 
-jest.mock("../database/redis"); // Mock Redis
+jest.mock("../database/redis");
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -15,300 +16,173 @@ beforeEach(() => {
 });
 
 describe("Leaderboard Service", () => {
-  test("updateScore should update in-memory leaderboard", async () => {
-    leaderboards.set("game1", new Map());
-    await updateScore("game1", "user1", 10);
-    expect(leaderboards.get("game1").get("user1")).toBe(10);
-  });
+  describe("updateScore", () => {
+    test("should update score in Redis", async () => {
+      redisClient.zadd.mockResolvedValue(1);
+      redisClient.sadd.mockResolvedValue(1);
+      redisClient.scard.mockResolvedValue(POPULARITY_COUNT + 1); // Popular game
 
-  test("updateScore should correctly add to an existing user's score", async () => {
-    leaderboards.set("game1", new Map([["user1", 5]]));
-    await updateScore("game1", "user1", 10);
-    expect(leaderboards.get("game1").get("user1")).toBe(10);
-  });
+      redisClient.zadd.mockResolvedValue(1);
+      redisClient.sadd.mockResolvedValue(1);
+      redisClient.scard.mockResolvedValue(POPULARITY_COUNT + 1);
+      redisClient.zrevrange.mockResolvedValue(["user1", "100", "user2", "90"]);
 
-  test("updateScore should create a new game entry if it doesn't exist", async () => {
-    await updateScore("newGame", "user1", 20);
-    expect(leaderboards.get("newGame").get("user1")).toBe(20);
-  });
+      await updateScore("game1", "user1", 100);
 
-  test("updateScore should track active users in Redis", async () => {
-    redisClient.sadd.mockResolvedValue(1); // Mock Redis set addition
-
-    await updateScore("game1", "user1", 15);
-
-    expect(redisClient.sadd).toHaveBeenCalledWith(
-      "game:game1:activeUsers",
-      "user1",
-    );
-  });
-
-  test("updateScore should cache score in Redis if game is popular", async () => {
-    redisClient.scard.mockResolvedValue(POPULARITY_COUNT + 1); // Mock popularity check
-    redisClient.zadd.mockResolvedValue(1);
-
-    await updateScore("game1", "user1", 15);
-
-    expect(redisClient.zadd).toHaveBeenCalledTimes(1);
-    expect(redisClient.zadd).toHaveBeenCalledWith(
-      "leaderboard:game1",
-      15,
-      "user1",
-    );
-  });
-
-  test("updateScore should cache full leaderboard to Redis when a game becomes popular for the first time", async () => {
-    // Mock game as NOT in Redis (first time becoming popular)
-    redisClient.exists.mockResolvedValue(false);
-    redisClient.scard.mockResolvedValue(POPULARITY_COUNT + 1); // Game crosses popularity threshold
-    redisClient.pipeline = jest.fn().mockReturnValue({
-      zadd: jest.fn(),
-      exec: jest.fn().mockResolvedValue([]),
+      expect(redisClient.zadd).toHaveBeenCalledWith(
+        "leaderboard:game1",
+        100,
+        "user1",
+      );
+      expect(redisClient.sadd).toHaveBeenCalledWith(
+        "game:game1:activeUsers",
+        "user1",
+      );
     });
 
-    // Set initial in-memory leaderboard
-    leaderboards.set(
-      "game1",
-      new Map([
+    test("should cache leaderboard in memory for popular games", async () => {
+      redisClient.zadd.mockResolvedValue(1);
+      redisClient.sadd.mockResolvedValue(1);
+      redisClient.scard.mockResolvedValue(POPULARITY_COUNT + 1);
+      redisClient.zrevrange.mockResolvedValue(["user1", "100", "user2", "90"]);
+
+      await updateScore("game1", "user1", 100);
+
+      expect(leaderboards.has("game1")).toBe(true);
+      expect(Array.from(leaderboards.get("game1"))).toEqual([
         ["user1", 100],
         ["user2", 90],
-      ]),
-    );
+      ]);
+    });
 
-    await updateScore("game1", "user3", 80);
+    test("should throw an error if gameId is missing", async () => {
+      await expect(updateScore(null, "user1", 100)).rejects.toThrow(
+        "gameId and userId should be provided",
+      );
+    });
 
-    // Ensure full leaderboard dump happened
-    expect(redisClient.pipeline).toHaveBeenCalled();
-    expect(redisClient.pipeline().zadd).toHaveBeenCalledWith(
-      "leaderboard:game1",
-      100,
-      "user1",
-    );
-    expect(redisClient.pipeline().zadd).toHaveBeenCalledWith(
-      "leaderboard:game1",
-      90,
-      "user2",
-    );
-    expect(redisClient.pipeline().zadd).toHaveBeenCalledWith(
-      "leaderboard:game1",
-      80,
-      "user3",
-    );
-    expect(redisClient.pipeline().exec).toHaveBeenCalled();
+    test("should throw an error if userId is missing", async () => {
+      await expect(updateScore("game1", null, 100)).rejects.toThrow(
+        "gameId and userId should be provided",
+      );
+    });
+
+    test("should handle Redis failure gracefully", async () => {
+      redisClient.zadd.mockRejectedValue(new Error("Redis error"));
+
+      await expect(updateScore("game1", "user1", 100)).rejects.toThrow(
+        "Failed to update score due to an internal error",
+      );
+    });
   });
 
-  test("updateScore should cache new scores in Redis after a game becomes popular", async () => {
-    redisClient.exists.mockResolvedValue(true); // Game is already popular in Redis
-    redisClient.zadd.mockResolvedValue(1); // Mock Redis write
+  describe("getLeaderboard", () => {
+    test("should fetch leaderboard from memory if available", async () => {
+      leaderboards.set(
+        "game1",
+        new Map([
+          ["user1", 100],
+          ["user2", 90],
+        ]),
+      );
 
-    await updateScore("game1", "user1", 75);
+      const leaderboard = await getLeaderboard("game1");
 
-    expect(redisClient.zadd).toHaveBeenCalledWith(
-      "leaderboard:game1",
-      75,
-      "user1",
-    );
+      expect(leaderboard).toEqual([
+        { userId: "user1", score: 100 },
+        { userId: "user2", score: 90 },
+      ]);
+    });
+
+    test("should fetch leaderboard from Redis if not in memory", async () => {
+      redisClient.zrevrange.mockResolvedValue(["user1", "100", "user2", "90"]);
+
+      const leaderboard = await getLeaderboard("game1");
+
+      expect(redisClient.zrevrange).toHaveBeenCalledWith(
+        "leaderboard:game1",
+        0,
+        9,
+        "WITHSCORES",
+      );
+      expect(leaderboard).toEqual([
+        { userId: "user1", score: 100 },
+        { userId: "user2", score: 90 },
+      ]);
+    });
+
+    test("should return empty leaderboard when Redis has no data", async () => {
+      redisClient.zrevrange.mockResolvedValue([]);
+
+      const leaderboard = await getLeaderboard("game1");
+
+      expect(leaderboard).toEqual([]);
+    });
+
+    test("should handle Redis failure gracefully", async () => {
+      redisClient.zrevrange.mockRejectedValue(new Error("Redis error"));
+
+      const leaderboard = await getLeaderboard("game1");
+
+      expect(leaderboard).toEqual([]); // Fallback to empty array
+    });
   });
 
-  test("updateScore should handle Redis failure gracefully", async () => {
-    redisClient.zadd.mockRejectedValue(new Error("Redis write error"));
+  describe("isPopularGame", () => {
+    test("should return true when active users exceed threshold", async () => {
+      redisClient.scard.mockResolvedValue(POPULARITY_COUNT + 1);
 
-    leaderboards.set("game1", new Map([["user1", 60]]));
+      const isPopular = await isPopularGame("game1");
 
-    await expect(updateScore("game1", "user1", 70)).resolves.not.toThrow();
+      expect(isPopular).toBe(true);
+    });
 
-    expect(leaderboards.get("game1").get("user1")).toBe(70);
+    test("should return false when active users are below threshold", async () => {
+      redisClient.scard.mockResolvedValue(POPULARITY_COUNT - 1);
+
+      const isPopular = await isPopularGame("game1");
+
+      expect(isPopular).toBe(false);
+    });
+
+    test("should handle Redis failures gracefully", async () => {
+      redisClient.scard.mockRejectedValue(new Error("Redis error"));
+
+      const isPopular = await isPopularGame("game1");
+
+      expect(isPopular).toBe(false); // Fallback to false
+    });
   });
 
-  test("updateScore should throw an error if gameId is null", async () => {
-    await expect(updateScore(null, "user1", 10)).rejects.toThrow();
-  });
+  describe("cacheLeaderboardInMemory", () => {
+    test("should cache leaderboard correctly", async () => {
+      redisClient.zadd.mockResolvedValue(1);
+      redisClient.sadd.mockResolvedValue(1);
+      redisClient.scard.mockResolvedValue(POPULARITY_COUNT + 1);
+      redisClient.zrevrange.mockResolvedValue(["user1", "100", "user2", "90"]);
 
-  test("updateScore should throw an error if userId is undefined", async () => {
-    await expect(updateScore("game1", undefined, 10)).rejects.toThrow();
-  });
+      await updateScore("game1", "user1", 100);
 
-  test("getLeaderboard should fetch from Redis if cached", async () => {
-    redisClient.exists.mockResolvedValue(true);
-    redisClient.zrevrange.mockResolvedValue(["user1", "20", "user2", "10"]);
-
-    const leaderboard = await getLeaderboard("game1");
-
-    expect(redisClient.zrevrange).toHaveBeenCalledWith(
-      "leaderboard:game1",
-      0,
-      9,
-      "WITHSCORES",
-    );
-    expect(leaderboard).toEqual([
-      { userId: "user1", score: 20 },
-      { userId: "user2", score: 10 },
-    ]);
-  });
-
-  test("getLeaderboard should return data from Redis for a popular game", async () => {
-    redisClient.exists.mockResolvedValue(true); // Game exists in Redis
-    redisClient.zrevrange.mockResolvedValue(["user1", "100", "user2", "90"]);
-
-    const leaderboard = await getLeaderboard("game1");
-
-    expect(redisClient.zrevrange).toHaveBeenCalledWith(
-      "leaderboard:game1",
-      0,
-      9,
-      "WITHSCORES",
-    );
-    expect(leaderboard).toEqual([
-      { userId: "user1", score: 100 },
-      { userId: "user2", score: 90 },
-    ]);
-  });
-
-  test("getLeaderboard should return only the requested number of items (limit parameter)", async () => {
-    redisClient.exists.mockResolvedValue(false); // Leaderboard is not cached in Redis
-
-    // Set up an in-memory leaderboard with more than 3 users
-    leaderboards.set(
-      "game1",
-      new Map([
+      expect(leaderboards.has("game1")).toBe(true);
+      expect(Array.from(leaderboards.get("game1"))).toEqual([
         ["user1", 100],
         ["user2", 90],
-        ["user3", 80],
-        ["user4", 70],
-        ["user5", 60],
-      ]),
-    );
+      ]);
+    });
 
-    const leaderboard = await getLeaderboard("game1", 3); // Request top 3 entries
+    test("should evict least recently used (LRU) game when cache exceeds limit", async () => {
+      // Simulating MAX_POPULAR_GAMES being reached
+      for (let i = 1; i <= MAX_POPULAR_GAMES; i++) {
+        leaderboards.set(`game${i}`, new Map([["user1", i * 10]]));
+      }
+      // Add one more game to trigger eviction
+      leaderboards.set("gameX", new Map([["userX", 999]]));
 
-    expect(leaderboard).toHaveLength(3); // Ensure only 3 results are returned
-    expect(leaderboard).toEqual([
-      { userId: "user1", score: 100 },
-      { userId: "user2", score: 90 },
-      { userId: "user3", score: 80 },
-    ]);
-  });
+      evictIfNeeded();
 
-  test("getLeaderboard should fetch from memory if not cached", async () => {
-    redisClient.exists.mockResolvedValue(false);
-    leaderboards.set(
-      "game1",
-      new Map([
-        ["user1", 30],
-        ["user2", 25],
-      ]),
-    );
-
-    const leaderboard = await getLeaderboard("game1");
-
-    expect(leaderboard).toEqual([
-      { userId: "user1", score: 30 },
-      { userId: "user2", score: 25 },
-    ]);
-  });
-
-  test("getLeaderboard should return an empty array if no scores exist", async () => {
-    redisClient.exists.mockResolvedValue(false);
-    leaderboards.set("game1", new Map()); // No entries in leaderboard
-
-    const leaderboard = await getLeaderboard("game1");
-
-    expect(leaderboard).toEqual([]); // Expect empty array
-  });
-
-  test("getLeaderboard should handle Redis failure gracefully", async () => {
-    redisClient.exists.mockRejectedValue(new Error("Redis connection error"));
-
-    leaderboards.set(
-      "game1",
-      new Map([
-        ["user1", 50],
-        ["user2", 45],
-      ]),
-    );
-
-    await expect(getLeaderboard("game1")).resolves.toEqual([
-      { userId: "user1", score: 50 },
-      { userId: "user2", score: 45 },
-    ]);
-  });
-
-  test("isPopularGame should return true if active users exceed threshold", async () => {
-    redisClient.scard.mockResolvedValue(POPULARITY_COUNT + 1);
-
-    const isPopular = await isPopularGame("game1");
-
-    expect(isPopular).toBe(true);
-  });
-
-  test("isPopularGame should return false if active users are below threshold", async () => {
-    redisClient.scard.mockResolvedValue(4);
-
-    const isPopular = await isPopularGame("game1");
-
-    expect(isPopular).toBe(false);
-  });
-});
-
-describe("Leaderboard Eviction Strategy", () => {
-  test("Should not evict if under memory limit", async () => {
-    for (let i = 1; i <= MAX_IN_MEMORY_GAMES; i++) {
-      await updateScore(`game${i}`, "user1", 10);
-    }
-
-    expect(leaderboards.size).toBe(MAX_IN_MEMORY_GAMES);
-  });
-
-  test("Should evict least recently used game when exceeding limit", async () => {
-    for (let i = 1; i <= MAX_IN_MEMORY_GAMES + 1; i++) {
-      await updateScore(`game${i}`, "user1", 10);
-    }
-
-    // Since MAX_IN_MEMORY_GAMES + 1 games were added, the first game should be evicted
-    expect(leaderboards.has("game1")).toBe(true);
-    expect(leaderboards.size).toBe(MAX_IN_MEMORY_GAMES + 1);
-  });
-
-  test("Should keep frequently accessed games in memory", async () => {
-    // Add MAX_IN_MEMORY_GAMES games
-    for (let i = 1; i <= MAX_IN_MEMORY_GAMES; i++) {
-      await updateScore(`game${i}`, "user1", 10);
-    }
-
-    // Access `game1` multiple times (making it more recently used)
-    for (let i = 0; i < 5; i++) {
-      await getLeaderboard("game1");
-    }
-
-    // Add another game, forcing eviction
-    await updateScore("newGame", "user1", 10);
-
-    // `game1` should still be in memory, but an older game should be evicted
-    expect(leaderboards.has("game1")).toBe(true);
-    expect(leaderboards.size).toEqual(MAX_IN_MEMORY_GAMES + 1);
-  });
-
-  test("Should fetch from Redis if game was evicted", async () => {
-    // Mock Redis response for an evicted game
-    redisClient.exists.mockResolvedValue(true);
-    redisClient.zrevrange.mockResolvedValue(["user1", "100", "user2", "90"]);
-
-    // Add MAX_IN_MEMORY_GAMES + 1 to force eviction
-    for (let i = 1; i <= MAX_IN_MEMORY_GAMES + 1; i++) {
-      await updateScore(`game${i}`, "user1", 10);
-    }
-
-    const leaderboard = await getLeaderboard("game1");
-
-    expect(redisClient.zrevrange).toHaveBeenCalledWith(
-      "leaderboard:game1",
-      0,
-      9,
-      "WITHSCORES",
-    );
-    expect(leaderboard).toEqual([
-      { userId: "user1", score: 100 },
-      { userId: "user2", score: 90 },
-    ]);
+      // Expect the first inserted game to be evicted
+      expect(leaderboards.has("game1")).toBe(false);
+      expect(leaderboards.has("gameX")).toBe(true);
+    });
   });
 });

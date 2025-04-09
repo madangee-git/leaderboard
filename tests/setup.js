@@ -1,18 +1,20 @@
-const redisClient = require("../database/redis");
-
-jest.mock("../database/redis", () => ({
-  incr: jest.fn(),
-  get: jest.fn(),
-  exists: jest.fn(),
-  zadd: jest.fn(),
-  sadd: jest.fn(),
-  scard: jest.fn(),
-  zrevrange: jest.fn(),
-  pipeline: jest.fn(() => ({
-    zadd: jest.fn(),
-    exec: jest.fn(),
-  })),
-}));
+jest.mock("../database/redis", () => {
+  return {
+    incr: jest.fn().mockResolvedValue(1),
+    get: jest.fn().mockResolvedValue(null),
+    exists: jest.fn().mockResolvedValue(0),
+    zadd: jest.fn().mockResolvedValue(1),
+    sadd: jest.fn().mockResolvedValue(1),
+    scard: jest.fn().mockResolvedValue(0),
+    zrevrange: jest.fn().mockResolvedValue([]),
+    pipeline: jest.fn(() => {
+      return {
+        zadd: jest.fn(),
+        exec: jest.fn().mockResolvedValue([]),
+      };
+    }),
+  };
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
